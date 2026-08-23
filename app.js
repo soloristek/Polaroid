@@ -1,6 +1,6 @@
 // ================= 設定區 =================
-const LIFF_ID = '你的_LIFF_ID'; // [必填] 替換成你的 LIFF ID
-const IMGUR_CLIENT_ID = '你的_IMGUR_CLIENT_ID'; // [必填] 替換成你的 Imgur Client ID
+const LIFF_ID = '2011209422-rgTsz9k9'; // [必填] 替換成你的 LIFF ID
+const IMGBB_API_KEY = 'd7e564d52eb7afd37bf4b8693b2be802'; // [必填] 替換成你的 ImgBB API Key
 const FRAME_URL = 'frame.png'; // 預設的透明相框圖檔路徑
 
 let canvas;
@@ -10,7 +10,7 @@ let frameImage;
 async function initializeLiff() {
     try {
         await liff.init({ liffId: LIFF_ID });
-        // 如果是在外部瀏覽器開啟，要求登入
+        // 若在外部瀏覽器開啟，引導登入
         if (!liff.isLoggedIn() && !liff.isInClient()) {
             liff.login();
         }
@@ -28,15 +28,15 @@ function initCanvas() {
         backgroundColor: '#ffffff'
     });
 
-    // 載入透明相框 (設定為不可選取、不阻擋下方事件)
+    // 載入透明相框 (設定不可點選、事件穿透)
     fabric.Image.fromURL(FRAME_URL, function(img) {
         img.set({
             left: 0,
             top: 0,
             scaleX: canvas.width / img.width,
             scaleY: canvas.height / img.height,
-            selectable: false, // 禁止使用者移動相框
-            evented: false     // 讓滑鼠/觸控事件穿透相框，才能拉動下方的照片
+            selectable: false, // 禁止移動相框
+            evented: false     // 穿透相框以操控下方照片
         });
         frameImage = img;
         canvas.add(img);
@@ -52,7 +52,7 @@ document.getElementById('imageUpload').addEventListener('change', function(e) {
     reader.onload = function(f) {
         const data = f.target.result;
         fabric.Image.fromURL(data, function(img) {
-            // 自動縮放圖片以適應畫布大小
+            // 自動縮放以適應畫布
             const scale = Math.min(canvas.width / img.width, canvas.height / img.height);
             img.set({
                 left: canvas.width / 2,
@@ -68,55 +68,51 @@ document.getElementById('imageUpload').addEventListener('change', function(e) {
 
             canvas.add(img);
             
-            // 重要：每次加入新照片後，要把相框拉到最上層
+            // 每次載入新照片，確保相框在最上層
             if (frameImage) {
                 canvas.bringToFront(frameImage);
             }
 
-            // 啟用送出按鈕
+            // 啟用合成按鈕
             document.getElementById('sendBtn').disabled = false;
         });
     };
     reader.readAsDataURL(file);
 });
 
-// 4. 合成圖片並上傳至 Imgur
+// 4. 合成圖片並上傳至 ImgBB
 document.getElementById('sendBtn').addEventListener('click', async function() {
-    // 取消選取框線，避免被截圖進去
+    // 取消選取框線
     canvas.discardActiveObject();
     canvas.renderAll();
 
-    // 將畫布轉為 Base64 (JPEG 格式)
+    // 取得畫布 Base64 (去除 header 前綴)
     const base64Image = canvas.toDataURL({
         format: 'jpeg',
         quality: 0.9
     }).split(',')[1];
 
-    // UI 狀態切換
+    // 切換按鈕狀態
     document.getElementById('sendBtn').disabled = true;
     document.getElementById('loading').classList.remove('hidden');
 
     try {
-        // 呼叫 Imgur API
-        const response = await fetch('https://api.imgur.com/3/image', {
+        // 使用 FormData 傳送至 ImgBB API
+        const formData = new FormData();
+        formData.append('image', base64Image);
+
+        const response = await fetch(`https://api.imgbb.com/1/upload?key=${IMGBB_API_KEY}`, {
             method: 'POST',
-            headers: {
-                'Authorization': 'Client-ID ' + IMGUR_CLIENT_ID,
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                image: base64Image,
-                type: 'base64'
-            })
+            body: formData
         });
 
         const result = await response.json();
         
         if (result.success) {
-            const imageUrl = result.data.link; // 取得 Imgur 圖片網址
+            const imageUrl = result.data.url; // 取得 ImgBB 的公開 HTTPS 網址
             sendToLine(imageUrl);
         } else {
-            alert('上傳圖片失敗，請檢查 Imgur Client ID');
+            alert('上傳圖片失敗，請檢查 ImgBB API Key');
             resetBtn();
         }
     } catch (error) {
@@ -128,24 +124,21 @@ document.getElementById('sendBtn').addEventListener('click', async function() {
 
 // 5. 透過 LIFF 傳送訊息至聊天室
 function sendToLine(imageUrl) {
-    // 確認是在 LINE App 內部執行
     if (liff.isInClient()) {
         liff.sendMessages([
             {
                 type: 'image',
                 originalContentUrl: imageUrl,
-                previewImageUrl: imageUrl // 預覽圖使用同一張
+                previewImageUrl: imageUrl
             }
         ]).then(() => {
-            // 傳送成功後關閉視窗
-            liff.closeWindow();
+            liff.closeWindow(); // 成功後關閉視窗
         }).catch((err) => {
             console.error('LIFF 發送失敗', err);
-            alert('發送訊息失敗');
+            alert('發送訊息至 LINE 失敗');
             resetBtn();
         });
     } else {
-        // 若在一般瀏覽器測試，直接顯示網址
         alert('合成成功！圖片網址：\n' + imageUrl);
         resetBtn();
     }
@@ -157,7 +150,7 @@ function resetBtn() {
     document.getElementById('loading').classList.add('hidden');
 }
 
-// 網頁載入後啟動
+// 啟動
 window.onload = () => {
     initializeLiff();
     initCanvas();
